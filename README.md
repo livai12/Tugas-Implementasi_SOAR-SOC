@@ -80,10 +80,71 @@ Untuk mempercepat respon terhadap lonjakan trafik skala lab mahasiswa, ditambahk
 
 2. Peluncuran Serangan (Ardhan)
 Ardhan meluncurkan banjir paket `SYN` ke port 80 milik Obi menggunakan `hping3`:
+## Attacker Node — azurevm-agent
+
+Node ini berperan sebagai mesin penyerang dalam skenario pengujian SIEM Wazuh. Serangan dijalankan dari `azurevm-agent` ke target `VM2MIKS` yang berada dalam satu VNet Azure yang sama.
+
+---
+
+### Skenario 1 — HTTP Flood (DDoS Layer 7)
+
+**Tool:** ApacheBench (`ab`)
+
+**Instalasi:**
 ```bash
-sudo apt install hping3 -y
-sudo hping3 -S --flood -V -p 80 <IP_PUBLIK_VM_OBI>
+sudo apt update && sudo apt install -y apache2-utils
 ```
+
+**Command serangan:**
+```bash
+ab -n 1000 -c 100 http://<TARGET_IP>/
+```
+
+| Parameter | Nilai | Penjelasan |
+|-----------|-------|------------|
+| `-n` | 1000 | Total HTTP request yang dikirimkan |
+| `-c` | 100 | Jumlah koneksi concurrent (serentak) |
+| Target | `<TARGET_IP>` | IP publik VM2MIKS yang menjalankan Apache |
+
+Serangan ini memicu alert **Rule ID 100210 Level 12** di Wazuh dengan deskripsi *ApacheBench HTTP flood detected against web server target*.
+
+---
+
+### Skenario 2 — Simulasi Malware (EICAR Test File)
+
+**Tool:** ClamAV
+
+EICAR adalah file test standar industri yang dikenali antivirus sebagai malware tanpa berbahaya secara nyata.
+
+**Instalasi ClamAV di VM target:**
+```bash
+sudo apt install -y clamav clamav-daemon
+sudo systemctl stop clamav-freshclam
+sudo freshclam
+sudo systemctl start clamav-freshclam
+```
+
+**Membuat EICAR file dan scan:**
+```bash
+echo 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' > /tmp/eicar_test.com
+sudo clamscan --infected --remove /tmp/eicar_test.com
+```
+
+ClamAV mendeteksi `Eicar-Signature FOUND` dan melaporkan ke Wazuh, memicu alert **Rule ID 52502** — *ClamAV: Virus detected*.
+
+---
+
+### Kronologi Serangan
+
+| Waktu | Aksi | Tool | Alert Wazuh |
+|-------|------|------|-------------|
+| 09:44 | Credential brute-force | Hydra v9.5 | Rule 5710, Level 5 |
+| 15:39 | HTTP Flood ke VM2MIKS | ApacheBench | Rule 100210, Level 12 |
+| 10:18 | Simulasi malware EICAR | ClamAV | Rule 52502, Level 7 |
+
+---
+
+> Seluruh serangan dilakukan dalam lingkungan lab terisolasi pada Microsoft Azure Student Free Tier.
 
 3. Dampak Serangan
   - Sisi Target (Obi): CPU Load melonjak drastis mencapai ~100% dan service web Apache menjadi lambat/unreachable (Denial of Service).
