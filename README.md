@@ -1,4 +1,4 @@
-# Mini SOC Architecture: Wazuh SIEM Deployment & DDoS Attack Simulation
+# Mini SOC Architecture: Wazuh SIEM Deployment & DDoS Attack Simulation and Malware Detection
 Deskripsi Tugas: Melakukan *deployment* arsitektur SIEM Wazuh di dalam VM cloud Azure, menyimulasikan skenario serangan *Distributed Denial of Service* (DDoS), serta melakukan optimasi kepadatan dan distribusi penyimpanan log (*logging density & distribution*).
 
 # Laporan kami dapat dicek di link berikut
