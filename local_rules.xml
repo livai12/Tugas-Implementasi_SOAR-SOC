@@ -1,0 +1,6 @@
+<rule id="100210" level="12">
+  <if_sid>86601</if_sid>
+  <match>ApacheBenchmark Tool User-Agent Detected</match>
+  <description>ApacheBench HTTP flood detected against web server target</description>
+  <group>suricata,ddos,http_flood,critical_lab,</group>
+</rule>
