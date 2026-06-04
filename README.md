@@ -34,7 +34,7 @@ Menggunakan 3 Mesin Virtual (VM) di Azure:
 | Nama VM | Peran | OS | Spesifikasi | Komponen Utama |
 |----------|--------|----|--------------|----------------|
 | azurevm-manager | SIEM Central Server | Ubuntu 22.04 LTS | Standard_D2s_v3 (2 vCPU, 8 GB RAM) | Wazuh Manager, Indexer, Dashboard |
-| azurevm-agent-obi | Target Host / Victim | Ubuntu 22.04 LTS | Standard_B1s (1 vCPU, 1 GB RAM) | Wazuh Agent, Apache2 Web Server |
+| VM2MIKS | Target Host / Victim | Ubuntu 22.04 LTS | Standard_B1s (1 vCPU, 1 GB RAM) | Wazuh Agent, Apache2 Web Server |
 | azurevm-attacker | Threat Actor | Ubuntu 22.04 LTS | Standard_B1s (1 vCPU, 1 GB RAM) | Wazuh Agent, hping3 Network Tool |
 
 ## Panduan Deployment & Instalasi
@@ -63,18 +63,13 @@ sudo systemctl start wazuh-agent
 ```
 
 ## Skenario & Eksekusi DDoS Attack (PoC)
-Skenario ini membuktikan kapabilitas Proof of Concept (PoC) deteksi SIEM terhadap anomali trafik tinggi (SYN Flood Attack).
-
-1. Tuning Kustom Aturan Deteksi (Wazuh Manager)
-Untuk mempercepat respon terhadap lonjakan trafik skala lab mahasiswa, ditambahkan aturan kustom pada `/var/ossec/etc/rules/local_rules.xml`:
+Definisikan terlebih dahulu ID, Judul, Level Serangan yang akan dilakukan, dengan mengedit file `/var/ossec/etc/rules/local_rules.xml`:
 ```xml
-<rule id="100001" level="12">
-  <if_matched_sid>31100</if_matched_sid>
-  <same_source_ip />
-  <description>DDoS Attack Detected: High volume of connection attempts from a single IP</description>
-  <mitre>
-    <id>T1498.001</id>
-  </mitre>
+<rule id="100210" level="12">
+  <if_sid>86601</if_sid>
+  <match>ApacheBenchmark Tool User-Agent Detected</match>
+  <description>ApacheBench HTTP flood detected against web server target</description>
+  <group>suricata,ddos,http_flood,critical_lab,</group>
 </rule>
 ```
 
