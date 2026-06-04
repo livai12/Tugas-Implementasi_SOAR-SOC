@@ -1,0 +1,11 @@
+# Pastikan ClamAV daemon jalan
+sudo systemctl start clamav-daemon
+
+# Buat EICAR file
+echo 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' > /tmp/eicar_test.com
+
+# Scan — ini yang harusnya trigger alert Wazuh
+sudo clamscan --infected --remove /tmp/eicar_test.com
+
+# Kalau mau lebih jelas di Wazuh, scan seluruh /tmp
+sudo clamscan -r /tmp/
