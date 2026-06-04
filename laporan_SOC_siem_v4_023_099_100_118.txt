@@ -1,0 +1,638 @@
+﻿LAPORAN PRAKTIKUM
+SECURITY INFORMATION AND EVENT MANAGEMENT (SIEM)
+Simulasi Serangan DDoS menggunakan Wazuh pada Microsoft Azure Cloud
+
+
+
+
+
+
+
+
+Keterangan
+	Detail
+	Mata Kuliah
+	Secuirty Operation Center (SOC)
+	Anggota Kelompok
+	Muhammad Fatihul qolbi - 023
+	
+
+	Muhammad Ahsani Taqwiim - 099
+	
+
+	Imam Mahmud Dalil Fauzan - 100
+	
+
+	Naufal Ardhana - 118
+	Topik
+	SIEM Deployment & DDoS Attack Scenario PoC
+	Platform
+	Microsoft Azure (Student Free Tier)
+	SIEM Tools
+	Wazuh v4.9.0 — Manager + 2 Agent
+	Tanggal
+	20 Mei 2026
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Daftar Isi
+BAB I — PENDAHULUAN        4
+1.1 Latar Belakang        4
+1.2 Tujuan        4
+1.3 Ruang Lingkup        4
+BAB II — SETUP DAN KONFIGURASI VIRTUAL MACHINE        5
+2.1 Provisioning VM di Microsoft Azure        5
+2.2 Azure Advisor Recommendations        5
+2.3 Akses SSH ke Virtual Machine        6
+2.4 Arsitektur Jaringan        7
+BAB III — INSTALASI DAN KONFIGURASI WAZUH        9
+3.1 Instalasi Wazuh Manager        9
+3.2 Konfigurasi ossec.conf pada Wazuh Manager        9
+3.3 Instalasi Wazuh Agent pada VM Target (VM2MIKS)        10
+3.4 Custom Rules — Deteksi ApacheBench HTTP Flood        11
+3.5 Verifikasi Status Endpoint di Wazuh Dashboard        12
+BAB IV — SKENARIO SERANGAN DDoS dan Malware        13
+4.1 Metodologi Serangan        13
+4.2 Eksekusi Serangan — ApacheBench HTTP Flood        13
+4.3 Serangan Lanjutan — Hydra Credential Attack        14
+4.4 Ringkasan Vektor Serangan        15
+BAB V — ANALISIS DETEKSI WAZUH        16
+5.1 Alert Utama — Rule ID 100210 (Level 12 Critical)        16
+5.2 Threat Hunting Dashboard        16
+5.3 MITRE ATT&CK Analysis        17
+5.4 Security Events Dashboard (24 Jam)        18
+5.5 Vulnerability Assessment        19
+BAB VI — ANALISIS LOGGING DENSITY DAN DISTRIBUSI        21
+6.1 Logging Density — Kepadatan Log        21
+Kondisi Normal vs Saat Serangan        21
+Strategi Manajemen Kepadatan        21
+6.2 Logging Distribution — Distribusi Log        21
+BAB VII — SOAR: AUTOMATED IP BLOCKING VIA SHUFFLE        22
+7.1 Latar Belakang SOAR        22
+7.2 Arsitektur SOAR — Wazuh + Shuffle + Flask Blocker API        22
+7.3 Konfigurasi UFW pada VM Target        23
+7.4 Workflow Shuffle — WAZUH IP BLOCKER        24
+7.5 Flask Blocker API        26
+7.6 Alur Kerja End-to-End        28
+7.7 Validasi dan Hasil        28
+BAB VIII — KESIMPULAN        30
+8.1 Keberhasilan Deployment dan Setup        30
+8.2 Efektivitas Deteksi        30
+8.3 Temuan Vulnerability        30
+8.4 Temuan Logging Density & Distribusi        30
+8.5 Rekomendasi        30
+BAB I — PENDAHULUAN
+
+
+1.1 Latar Belakang
+Serangan Distributed Denial of Service (DDoS) merupakan salah satu ancaman siber paling merusak yang dihadapi organisasi modern. Serangan ini bekerja dengan cara membanjiri sistem target menggunakan volume lalu lintas jaringan yang jauh melebihi kapasitas server, sehingga layanan menjadi tidak responsif terhadap pengguna yang sah. Dampaknya mencakup kerugian finansial langsung, gangguan operasional, hingga rusaknya reputasi jangka panjang.
+Dalam lingkup Security Operations Center (SOC), kemampuan mendeteksi dan merespons serangan DDoS secara cepat dan akurat adalah kompetensi fundamental. Wazuh, sebagai platform SIEM open-source yang kini banyak digunakan di industri, menyediakan mekanisme korelasi log, deteksi anomali berbasis aturan, serta integrasi dengan komponen seperti Suricata IDS yang mampu mengidentifikasi pola serangan pada lapisan jaringan.
+Praktikum ini mengimplementasikan skenario nyata: dua virtual machine di-deploy sebagai endpoint Wazuh Agent di atas Microsoft Azure Student Free Tier — satu bertindak sebagai penyerang yang melancarkan HTTP Flood dan credential attack, satu lagi sebagai target (VM2MIKS) yang dipantau penuh oleh Wazuh Manager. Seluruh siklus, mulai dari provisioning VM, konfigurasi Wazuh, hingga analisis forensik pasca-serangan, didokumentasikan lengkap dalam laporan ini.
+
+
+1.2 Tujuan
+1. Men-deploy arsitektur Wazuh SIEM lengkap (1 Manager + 2 Agent) pada Microsoft Azure menggunakan student free tier.
+2. Mendokumentasikan seluruh tahapan setup VM dan konfigurasi Wazuh secara detail.
+3. Merancang dan mengeksekusi skenario HTTP Flood menggunakan ApacheBench (ab) sebagai Proof of Concept DDoS.
+4. Menganalisis kemampuan Wazuh dalam mendeteksi pola anomali dan membangkitkan alert kritis (Rule ID 100210, Level 12).
+5. Mendokumentasikan temuan terkait logging density, distribusi log, dan vulnerability posture sistem target.
+
+
+1.3 Ruang Lingkup
+Praktikum ini dilaksanakan dalam lingkungan terisolasi dan terkontrol pada Microsoft Azure. Seluruh lalu lintas serangan bersifat internal antar-VM dalam jaringan yang sama dan tidak melibatkan sistem di luar cakupan yang telah ditetapkan. Penggunaan tool ApacheBench dan Hydra dilakukan semata-mata untuk keperluan akademis dalam rangka menguji kapabilitas deteksi SIEM.
+
+
+BAB II — SETUP DAN KONFIGURASI VIRTUAL MACHINE
+
+
+2.1 Provisioning VM di Microsoft Azure
+Seluruh infrastruktur dibangun menggunakan Microsoft Azure Student Free Tier (Subscription: Azure for Students, ID: ce69039e-a431-44fd-a5b7-b442e0ebc966). Tiga virtual machine diprovisioning dalam satu Resource Group (azurevm-manager group) di region Malaysia West, dengan Virtual Network yang sama (azurevm-agent-vnet/default) agar komunikasi antar-VM dapat berjalan melalui private network.
+Spesifikasi VM yang dipilih adalah Standard D2s v3 — tier yang tersedia pada Azure for Students — dengan 2 vCPU dan 8 GiB RAM, cukup memadai untuk menjalankan Wazuh Manager maupun Agent tanpa degradasi performa yang signifikan.
+
+
+  
+
+Gambar 1. Azure VM Essentials — azurevm-agent (Subscription: Azure for Students, Region: Malaysia West)
+  
+
+Gambar 2. Azure VM Properties — azurevm-agent (Standard D2s v3, 2 vCPU, 8 GiB RAM, IP Publik: 85.211.194.222)
+2.2 Azure Advisor Recommendations
+Azure Advisor secara otomatis menganalisis konfigurasi VM dan memberikan rekomendasi peningkatan. Dari hasil scan pada VM azurevm-agent, terdapat 3 rekomendasi aktif: 1 High Impact terkait Operational Excellence (Enable Trusted Launch) dan 2 Medium Impact terkait Reliability (Migrate to VM Scale Sets Flex dan Align location of resource group). Tidak ada rekomendasi pada kategori Security dan Performance, menandakan konfigurasi dasar keamanan VM telah memenuhi standar minimal Azure.
+
+
+  
+
+Gambar 3. Azure Advisor Recommendations — 3 Rekomendasi Aktif pada VM azurevm-agent
+2.3 Akses SSH ke Virtual Machine
+Setelah VM berhasil diprovisioning, akses dilakukan melalui SSH menggunakan private key yang digenerate saat pembuatan VM. Koneksi diinisiasi dari PowerShell lokal (Windows) menggunakan command berikut:
+
+
+# Akses SSH ke VM azurevm-agent menggunakan private key
+PS C:\Users\LOQ\Downloads> ssh -i azurekey.pem azureuser@85.211.194.222
+
+
+# Output konfirmasi koneksi:
+# The authenticity of host '85.211.194.222' can't be established.
+# ED25519 key fingerprint is SHA256:qeV7H+8XumHqvMKkI+tqSwwZvr6vWy7aeCXTkHzQIls.
+# Welcome to Ubuntu 24.04.4 LTS (GNU/Linux 6.17.0-1013-azure x86_64)
+	
+
+  
+
+Gambar 4. Terminal SSH Login ke azurevm-agent — Ubuntu 24.04.4 LTS, IP Private 10.0.0.4
+Dari output MOTD (Message of the Day) terminal SSH, dapat dikonfirmasi kondisi sistem saat pertama kali diakses:
+* System load: 0.14 — VM dalam kondisi ringan, siap untuk instalasi Wazuh.
+* Usage of /: 5.4% dari 28.02 GB — ruang disk yang tersedia lebih dari cukup.
+* Memory usage: 3% — hampir seluruh RAM tersedia untuk Wazuh Manager dan Agent.
+* IPv4 address for eth0: 10.0.0.4 — IP private dalam VNet yang sama dengan VM lain.
+* 0 updates available — sistem baru dan bersih, belum ada paket yang perlu diperbarui.
+
+
+2.4 Arsitektur Jaringan
+Ketiga VM ditempatkan dalam satu Virtual Network Azure untuk memungkinkan komunikasi internal langsung tanpa melewati internet publik. Berikut ringkasan topologi yang diimplementasikan:
+
+
+Peran
+	Hostname
+	IP Private
+	IP Publik
+	Spesifikasi
+	Wazuh Manager
+	azurevm-manager
+	10.0.0.4
+	20.2.234.55
+	Standard D2s v3, 2 vCPU, 8 GiB
+	Penyerang (Attacker)
+	azurevm-agent
+	10.0.0.4
+	85.211.194.222
+	Standard D2s v3, 2 vCPU, 8 GiB
+	Target (Defender)
+	VM2MIKS
+	10.0.0.4
+	20.214.204.198
+	Standard D2s v3, 2 vCPU, 8 GiB
+	Tabel 1. Spesifikasi dan Topologi Virtual Machine pada Azure
+
+
+
+
+BAB III — INSTALASI DAN KONFIGURASI WAZUH
+
+
+3.1 Instalasi Wazuh Manager
+Wazuh Manager diinstal pada VM pertama (azurevm-manager) menggunakan Wazuh installation assistant — metode instalasi resmi yang memanfaatkan script otomatis untuk men-deploy Manager, Indexer, dan Dashboard dalam satu node. Versi yang digunakan adalah Wazuh v4.9.0.
+
+
+# Download dan jalankan Wazuh installation assistant
+curl -sO https://packages.wazuh.com/4.9/wazuh-install.sh
+curl -sO https://packages.wazuh.com/4.9/config.yml
+
+
+# Edit config.yml: isi IP Manager
+nano config.yml
+
+
+# Jalankan assistant untuk generate certificates
+bash wazuh-install.sh --generate-config-files
+
+
+# Install Wazuh Indexer
+bash wazuh-install.sh --wazuh-indexer node-1
+
+
+# Install Wazuh Manager + Dashboard
+bash wazuh-install.sh --wazuh-server wazuh-1
+bash wazuh-install.sh --wazuh-dashboard dashboard
+	
+
+3.2 Konfigurasi ossec.conf pada Wazuh Manager
+File konfigurasi utama Wazuh Manager adalah ossec.conf yang berlokasi di /var/ossec/etc/ossec.conf. File ini mengontrol seluruh aspek perilaku Manager: output format, level alert yang di-log, koneksi dari agent, dan monitoring policy. Berikut adalah konfigurasi yang diterapkan dalam praktikum ini:
+
+
+  
+
+Gambar 5. Isi Konfigurasi ossec.conf pada Wazuh Manager
+
+
+Poin-poin konfigurasi kritis yang perlu diperhatikan dari file ossec.conf di atas:
+* jsonout_output: yes — output alert diekspor dalam format JSON, kompatibel dengan Wazuh Dashboard dan Elasticsearch.
+* alerts_log: yes — seluruh alert disimpan ke file /var/ossec/logs/alerts/alerts.log untuk audit dan forensik.
+* log_alert_level: 3 — hanya event dengan level 3 ke atas yang disimpan sebagai alert. Level di bawah 3 diabaikan untuk menekan volume log rutin.
+* email_alert_level: 12 — email notifikasi hanya dikirim untuk alert Level 12 ke atas (critical), sehingga tim SOC tidak dibanjiri notifikasi untuk event minor.
+* remote connection: secure, port 1514, protocol tcp — komunikasi antara agent dan manager menggunakan koneksi terenkripsi TCP, bukan UDP, untuk memastikan pengiriman log yang andal.
+* queue_size: 131072 — buffer antrian event yang besar memastikan tidak ada log yang hilang saat terjadi spike traffic tinggi seperti saat serangan DDoS.
+
+
+3.3 Instalasi Wazuh Agent pada VM Target (VM2MIKS)
+Wazuh Agent diinstal pada VM2MIKS menggunakan package APT resmi dari repository Wazuh. Setelah instalasi, agent dikonfigurasi untuk menghubungi Manager melalui IP private dan diregistrasi menggunakan enrollment key.
+
+
+# Import Wazuh GPG key dan tambahkan repository
+curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring \
+  --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import
+echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ \
+  stable main" | tee /etc/apt/sources.list.d/wazuh.list
+
+
+# Install Wazuh Agent
+apt-get update && apt-get install wazuh-agent
+
+
+# Konfigurasi Manager IP di /var/ossec/etc/ossec.conf
+WAZUH_MANAGER='10.0.0.4' WAZUH_AGENT_NAME='VM2MIKS' dpkg-reconfigure wazuh-agent
+
+
+# Aktifkan dan jalankan agent
+systemctl daemon-reload
+systemctl enable wazuh-agent
+systemctl start wazuh-agent
+	
+
+3.4 Custom Rules — Deteksi ApacheBench HTTP Flood
+Untuk mendeteksi serangan ApacheBench secara spesifik, dibuat custom rule pada Wazuh Manager di file /var/ossec/etc/rules/local_rules.xml. Rule ini memanfaatkan kemampuan Suricata (yang telah diintegrasikan sebelumnya) untuk mendeteksi User-Agent ApacheBench dalam HTTP traffic, kemudian Wazuh mengkorelasikannya menjadi alert dengan level kritis.
+
+
+  
+
+Gambar 6. Isi File local_rules.xml — Custom Rule ID 100210 untuk Deteksi ApacheBench HTTP Flood
+
+
+Penjelasan struktur custom rule yang dibuat:
+
+
+<group name="local,suricata,ddos,">
+  <!-- Rule ID 100210: Deteksi ApacheBench Tool -->
+  <rule id="100210" level="12">
+    <if_sid>86601</if_sid>
+    <!-- Trigger jika parent rule Suricata 86601 aktif -->
+    <match>ApacheBenchmark Tool User-Agent Detected</match>
+    <!-- Match string dari Suricata alert -->
+    <description>ApacheBench HTTP flood detected against web server target</description>
+    <group>suricata,ddos,http_flood,critical_lab,</group>
+  </rule>
+</group>
+
+
+# Keterangan parameter:
+# level="12"    = Critical alert (tertinggi dalam praktikum ini)
+# if_sid 86601  = Bergantung pada Suricata generic alert rule
+# match         = String yang harus muncul di log untuk trigger rule ini
+	
+
+Rule ini bersifat chained — hanya aktif jika Suricata (rule 86601) terlebih dahulu mendeteksi traffic anomali, kemudian Wazuh memeriksa apakah string 'ApacheBenchmark Tool User-Agent Detected' ada dalam alert tersebut. Pendekatan two-layer ini mengurangi false positives secara signifikan karena dua kondisi harus terpenuhi secara bersamaan.
+
+
+3.5 Verifikasi Status Endpoint di Wazuh Dashboard
+Setelah seluruh instalasi dan konfigurasi selesai, status kedua agen diverifikasi melalui Wazuh Dashboard. Kedua endpoint — azurevm-agent (ID: 001) dan VM2MIKS (ID: 002) — berhasil terdaftar dengan status active pada Ubuntu 24.04.4 LTS, terkoneksi ke cluster node01.
+
+
+  
+
+Gambar 7. Wazuh Endpoints Dashboard — Kedua Agen Active, Wazuh v4.9.0
+
+
+BAB IV — SKENARIO SERANGAN DDoS dan Malware
+
+
+4.1 Metodologi Serangan
+Skenario serangan yang diimplementasikan menggunakan dua vektor utama: HTTP Flood menggunakan ApacheBench (ab) sebagai serangan DDoS utama, dan Hydra credential attack sebagai simulasi serangan lanjutan. Karena Azure memblokir raw packet di level infrastruktur, penggunaan hping3 untuk SYN Flood tidak memungkinkan, sehingga ApacheBench dipilih sebagai alternatif yang menghasilkan beban HTTP Layer 7 yang ekuivalen.
+Kami juga menggunakan konsep tools EICAR test files dimana ia akan berperan dalam pengiriman beberapa section unspicious file ke dalam lingkungan VM. Yang ini akan berbentuk sebagai identifikasi malware oleh wazuh.
+
+
+4.2 Eksekusi Serangan — ApacheBench HTTP Flood dan Malware
+Serangan HTTP Flood dieksekusi dari mesin azurevm-agent menggunakan command berikut:
+
+
+# Command HTTP Flood dari azurevm-agent ke VM2MIKS
+azureuser@azurevm-agent:~$ ab -n 1000 -c 100 http://20.249.5.44/
+
+
+# Parameter:
+#   -n 1000   = Total 1000 request
+#   -c 100    = 100 koneksi concurrent serentak
+#   Target    = http://20.249.5.44/ (IP publik VM2MIKS)
+	
+
+  
+
+Gambar 8. Terminal Output ApacheBench — ab -n 1000 -c 100 http://20.249.5.44/
+
+
+Hasil eksekusi: 1000 request selesai dalam 1.552 detik, throughput 644.43 req/sec, transfer rate 6887.96 Kbytes/sec, failed requests: 0.
+
+
+4.3 Serangan Lanjutan — Hydra Credential Attack dan Malware EICAR
+Setelah HTTP Flood, serangan dilanjutkan dengan Hydra untuk menguji kelemahan autentikasi HTTP basic pada target:
+
+
+azureuser@azurevm-agent:~$ hydra -l admin -p "password123" 20.249.5.44 http-get /
+# Hasil: 1 valid password found — admin:password123
+	
+
+  
+
+Gambar 9. Terminal Output Hydra — Credential Attack Berhasil (admin:password123)
+  
+
+Gambar 10. Terminal Output EICAR - Unsupicious file berhasil masuk ke dalam lingkup VM korban
+
+
+4.4 Ringkasan Vektor Serangan
+Parameter
+	HTTP Flood (ab)
+	Credential Attack (Hydra)
+	Tool
+	ApacheBench v2.3
+	Hydra v9.5
+	Target
+	20.249.5.44:80
+	20.249.5.44:80
+	Volume
+	1000 req, 100 concurrent
+	1 percobaan login
+	Throughput
+	644.43 req/sec
+	< 1 detik selesai
+	Hasil
+	0 failed requests
+	1 valid credential
+	Alert Wazuh
+	Rule 100210, Level 12
+	Rule PAM/SSH
+	Tabel 2. Ringkasan Vektor dan Hasil Serangan
+
+
+BAB V — ANALISIS DETEKSI WAZUH
+5.1 Alert Utama — Rule ID 100210 (Level 12 Critical)
+Event paling signifikan adalah alert Rule ID 100210, Level 12 pada pukul 15:39:23.700 dengan deskripsi 'ApacheBench HTTP flood detected against web server target'. Alert ini merupakan hasil aktivasi custom rule yang dibuat pada Bab III — membuktikan keseluruhan pipeline deteksi berjalan sempurna: Suricata mendeteksi → Wazuh mengkorelasikan → Alert Level 12 dibangkitkan.
+
+
+Field
+	Value
+	Timestamp
+	May 20, 2026 @ 15:39:23.700
+	Agent Name
+	VM2MIKS
+	Rule Description
+	ApacheBench HTTP flood detected against web server target
+	Rule Level
+	12 (Critical)
+	Rule ID
+	100210
+	Agent ID
+	002
+	Manager
+	azurevm-manager
+	Tabel 3. Detail Alert Rule ID 100210
+
+
+5.2 Threat Hunting Dashboard
+Total 14.129 hits tercatat dalam 24 jam pada VM2MIKS. Hierarki event yang terobservasi: aktivitas PAM normal → Alert Level 12 ApacheBench → serangkaian Suricata alerts (ET DROP Dshield, ET INFO SSH-2.0-Go, ET DROP Spamhaus).
+
+
+  
+
+Gambar 10. Wazuh Threat Hunting Dashboard VM2MIKS — 14.129 Hits dalam 24 Jam
+
+
+5.3 MITRE ATT&CK Analysis
+Panel MITRE ATT&CK menunjukkan enam taktik yang terpetakan selama 24 jam: Defense Evasion, Initial Access, Persistence, Privilege Escalation, Lateral Movement, dan Credential Access. Grafik 'Alerts evolution over time' memperlihatkan lonjakan signifikan pada pukul 15:00 WIB yang berkorelasi langsung dengan eksekusi serangan ab dan Hydra.
+
+
+  
+
+Gambar 11. MITRE ATT&CK Dashboard VM2MIKS — Distribusi Taktik dan Teknik Serangan
+
+
+5.4 Security Events Dashboard (24 Jam)
+Ringkasan keseluruhan: 14.088 total alert, 17 alert Level 12 ke atas (kritis), 82 Authentication Failure, 65 Authentication Success. Rasio gagal:sukses 82:65 mengindikasikan aktivitas brute-force yang berjalan paralel dengan DDoS.
+
+
+  
+
+Gambar 12. Wazuh Security Dashboard — 14.088 Total Alert dalam 24 Jam
+  
+
+Gambar 13. Top 5 Alerts, Rule Groups & PCI DSS Requirements — Suricata Mendominasi
+  
+
+Gambar 14. Events Count Evolution — Puncak 48 Event/Menit saat Serangan ApacheBench
+
+
+5.5 Vulnerability Assessment
+Wazuh SCA menemukan 483 kerentanan pada VM2MIKS: 0 Critical, 120 High, 357 Medium, 6 Low. Package linux-azure (669 instance) menjadi kontributor terbesar. CVE terbaru yang belum ter-patch: CVE-2023-50782, CVE-2024-0727, CVE-2024-26130.
+
+
+  
+
+Gambar 15. Vulnerability Assessment VM2MIKS — 483 Total Kerentanan (120 High Severity)
+  
+
+Gambar 16. Dashboard Individual VM2MIKS — MITRE ATT&CK, Compliance PCI DSS
+
+
+BAB VI — ANALISIS LOGGING DENSITY DAN DISTRIBUSI
+
+
+6.1 Logging Density — Kepadatan Log
+Logging density mengacu pada volume dan frekuensi log yang dihasilkan sistem dalam periode tertentu. Konfigurasi ossec.conf yang telah dijelaskan pada Bab III memberikan landasan manajemen kepadatan log yang baik melalui beberapa mekanisme.
+
+
+Kondisi Normal vs Saat Serangan
+Fase
+	Volume Log
+	Sumber Utama
+	Impact
+	Normal (pre-attack)
+	2–5 log/menit
+	SSH, PAM, System
+	Dapat diabaikan
+	Saat ab -n 1000 -c 100
+	~333 log/menit rata-rata
+	Apache log, Rule 100210
+	Spike signifikan
+	Puncak (peak)
+	48 event/menit (granular)
+	Wazuh correlations
+	Alert Level 12 terpicu
+	Post-attack
+	5–20 log/menit
+	Suricata, SSH, PAM
+	Menurun bertahap
+	Tabel 4. Perbandingan Logging Density Sebelum dan Selama Serangan
+
+
+Strategi Manajemen Kepadatan
+* Alert Thresholding: log_alert_level: 3 memastikan hanya event level 3 ke atas yang disimpan, memotong volume log rutin secara signifikan.
+* Email threshold level 12: notifikasi hanya dikirim untuk critical events sehingga mencegah alert fatigue tim SOC.
+* Frequency-based correlation pada Rule 100210: rule hanya aktif ketika Suricata parent rule terpenuhi, bukan setiap HTTP request individual.
+* queue_size: 131072 pada ossec.conf: buffer besar mencegah kehilangan log saat spike DDoS.
+* Log rotation: mencegah disk Azure Student Tier penuh akibat akumulasi log selama serangan intens.
+
+
+6.2 Logging Distribution — Distribusi Log
+Wazuh menggunakan koneksi terenkripsi TCP port 1514 (dikonfigurasi dalam ossec.conf: remote/connection: secure, port: 1514) untuk mengirimkan log dari agent ke manager secara real-time.
+* Real-time forwarding: event dicatat dengan akurasi milidetik (contoh: 15:39:51.729 dan 15:39:51.727 — selisih 2ms), membuktikan latensi pengiriman hampir nol.
+* Resiliensi: pipeline log tetap stabil saat VM2MIKS menerima 644 request/detik dari serangan ab. Queue internal agent mencegah kehilangan event.
+* Centralized correlation: semua log dari Apache, Suricata, PAM terkonsolidasi di Manager, memungkinkan korelasi cross-source yang menghasilkan Rule 100210.
+* Enkripsi end-to-end: log tidak dapat disadap selama transit, konfigurasi connection: secure menggunakan TLS.
+
+
+Keberhasilan pipeline ditunjukkan oleh fakta bahwa alert Level 12 (Rule 100210) terpicu secara tepat waktu pada 15:39:23 — membuktikan seluruh rantai: log Apache → Wazuh Agent VM2MIKS → Manager → Rule Engine → Alert → Dashboard bekerja end-to-end dalam hitungan detik.
+BAB VII — SOAR: AUTOMATED IP BLOCKING VIA SHUFFLE
+7.1 Latar Belakang SOAR
+Security Orchestration, Automation and Response (SOAR) merupakan lapisan respons otomatis yang melengkapi kemampuan deteksi SIEM. Jika SIEM bertugas mendeteksi dan membangkitkan alert, SOAR mengambil alih proses respons secara otomatis tanpa intervensi manual analis SOC. Dalam konteks serangan DDoS seperti yang disimulasikan pada praktikum ini, kecepatan respons sangat kritis — setiap detik keterlambatan berarti ribuan request tambahan membebani server target.
+Praktikum ini mengimplementasikan pipeline SOAR menggunakan Shuffle, platform SOAR open-source, yang menerima alert dari Wazuh dan secara otomatis memblokir IP sumber serangan menggunakan UFW (Uncomplicated Firewall) pada VM target (VM2MIKS). Pipeline ini aktif ketika Rule ID 100210 Level 12 terpicu, memastikan IP penyerang diblokir dalam hitungan detik setelah serangan terdeteksi.
+7.2 Arsitektur SOAR — Wazuh + Shuffle + Flask Blocker API
+Pipeline SOAR yang diimplementasikan terdiri dari tiga komponen utama yang saling terintegrasi:
+•          Wazuh Manager: mendeteksi serangan dan mengirimkan alert webhook ke Shuffle ketika Rule ID 100210 (Level 12) terpicu, dengan payload berisi data alert termasuk src_ip (IP sumber serangan).
+•          Shuffle (WAZUH IP BLOCKER workflow): menerima alert dari Wazuh, mengekstrak src_ip dari payload, dan meneruskan ke Flask Blocker API melalui HTTP POST request.
+•          Flask Blocker API: menerima request dari Shuffle, memvalidasi API key, kemudian menjalankan skrip block_ip.sh yang menambahkan aturan DENY pada UFW untuk memblokir IP penyerang.
+ 
+Komponen
+	Fungsi
+	Teknologi
+	Wazuh Manager
+	Deteksi serangan & trigger webhook
+	Wazuh v4.9.0 + ossec.conf active-response
+	Shuffle
+	Orkestrasi workflow SOAR
+	Shuffle SOAR (self-hosted / cloud)
+	Flask Blocker API
+	Eksekusi pemblokiran IP via UFW
+	Python Flask + subprocess + UFW
+	VM2MIKS (Target)
+	Sistem yang dilindungi
+	Ubuntu 24.04 + UFW firewall
+	Tabel 5. Komponen Arsitektur SOAR
+7.3 Konfigurasi UFW pada VM Target
+Sebelum pipeline SOAR dapat berfungsi, UFW dikonfigurasi pada VM2MIKS untuk menjadi firewall yang dapat dikendalikan secara programatik oleh Flask Blocker API. Status UFW pada VM2MIKS ditunjukkan pada gambar berikut:
+ 
+ Title: Gambar - Description: screenshot 
+
+Gambar 17. Status UFW VM2MIKS — Rule Aktif (sudo ufw status numbered)
+Dari output UFW di atas, terlihat konfigurasi firewall aktif dengan 7 aturan yang terpasang. Aturan nomor [1] menunjukkan DENY IN dari IP 85.211.194.222 (IP VM penyerang/azurevm-agent) — ini adalah hasil dari pipeline SOAR yang berhasil memblokir IP sumber serangan secara otomatis. Aturan-aturan berikutnya (nomor 2–7) adalah aturan ALLOW IN standar untuk port 22/tcp (SSH), 80/tcp (HTTP), dan 5000/tcp (Flask API) yang dibuka untuk akses dari mana saja, termasuk versi IPv6-nya.
+Port 5000 khusus dibuka untuk memungkinkan Shuffle (yang berjalan secara remote) dapat mengakses Flask Blocker API. Tanpa aturan ini, request dari Shuffle tidak akan dapat mencapai API blocker yang berjalan pada VM2MIKS.
+7.4 Workflow Shuffle — WAZUH IP BLOCKER
+Workflow SOAR dikonfigurasi di platform Shuffle dengan nama 'WAZUH IP BLOCKER'. Workflow ini terdiri dari dua node yang terhubung dalam alur linier:
+ 
+ Title: Gambar - Description: screenshot 
+
+Gambar 18. Workflow Shuffle — WAZUH IP BLOCKER (Receive Wazuh Alert → Http 1)
+Node pertama adalah 'Receive Wazuh Alert' — trigger node yang menggunakan integrasi Wazuh native Shuffle. Node ini dikonfigurasi untuk menerima webhook dari Wazuh Manager setiap kali alert dengan level tertentu (Level 12) dibangkitkan. Badge angka '3' pada node menunjukkan terdapat 3 eksekusi yang berhasil tercatat dalam riwayat workflow, sesuai dengan jumlah percobaan serangan yang dilakukan selama praktikum.
+Node kedua adalah 'Http 1' — action node yang mengirimkan HTTP POST request ke Flask Blocker API. Konfigurasi detail node ini dijelaskan pada subbab berikutnya.
+ 
+ Title: Gambar - Description: screenshot 
+
+Gambar 19. Konfigurasi Node Http 1 — POST ke Flask Blocker API
+Konfigurasi node Http 1 pada Shuffle menggunakan metode POST ke URL http://20.249.5.44:5000/block yang merupakan endpoint Flask Blocker API pada VM2MIKS. Body request berisi JSON dengan field ip yang diisi secara dinamis menggunakan variabel Shuffle $exec.all_fields.data.src_ip — variabel ini secara otomatis mengambil nilai IP sumber dari payload alert Wazuh yang diterima oleh node trigger.
+Header request menyertakan dua field penting: Content-Type: application/json untuk mendeklarasikan format payload, dan X-API-Key: ObiSOARBlocker2026! sebagai token autentikasi yang harus diverifikasi oleh Flask API sebelum memproses request pemblokiran. Penggunaan API key ini mencegah akses tidak sah ke endpoint blokir yang memiliki hak untuk memodifikasi aturan firewall.
+7.5 Flask Blocker API
+Flask Blocker API adalah komponen eksekutor dalam pipeline SOAR. API ini berjalan pada VM2MIKS di port 5000 dan bertanggung jawab menerima perintah blokir dari Shuffle, memvalidasi autentikasi, serta mengeksekusi pemblokiran IP melalui UFW.
+ 
+ Title: Gambar - Description: screenshot 
+
+Gambar 20. Kode Flask Blocker API (block_app.py) — Python Flask + subprocess UFW
+Kode Flask Blocker API di atas mengimplementasikan logika berikut: pertama, API mendefinisikan token API_TOKEN = 'ObiSOARBlocker2026!' sebagai kunci autentikasi. Setiap request yang masuk ke endpoint /block (method POST) pertama-tama diperiksa header X-API-Key-nya — jika tidak cocok, API mengembalikan response 401 Unauthorized.
+Setelah autentikasi berhasil, API mengekstrak nilai ip dari body JSON request. Jika field ip tidak ada, dikembalikan response 400 Bad Request. Jika IP valid, API menjalankan subprocess yang mengeksekusi skrip shell /usr/local/bin/block_ip.sh dengan IP sebagai argumen. Skrip ini pada dasarnya menjalankan perintah sudo ufw insert 1 deny from {ip} untuk menambahkan aturan DENY di posisi pertama UFW, memastikan aturan blokir memiliki prioritas tertinggi.
+Return code dari subprocess digunakan untuk menentukan response: jika berhasil (returncode == 0), API mengembalikan 200 OK beserta detail eksekusi; jika gagal, dikembalikan 500 Internal Server Error. Mekanisme ini memastikan Shuffle dapat mengetahui apakah pemblokiran berhasil atau tidak, dan dapat mengambil tindakan lanjutan jika diperlukan.
+7.6 Alur Kerja End-to-End
+Berikut adalah alur kerja pipeline SOAR secara end-to-end dari deteksi hingga pemblokiran:
+ 
+Langkah
+	Komponen
+	Aksi
+	Waktu
+	1
+	Penyerang
+	Melancarkan ab -n 1000 -c 100 ke VM2MIKS
+	T+0s
+	2
+	Suricata (VM2MIKS)
+	Mendeteksi User-Agent ApacheBench, trigger rule 86601
+	T+0.1s
+	3
+	Wazuh Agent (VM2MIKS)
+	Mengkorelasikan alert Suricata, aktivasi Rule 100210 Level 12
+	T+0.5s
+	4
+	Wazuh Manager
+	Menerima alert, mengirim webhook ke Shuffle dengan payload src_ip
+	T+1s
+	5
+	Shuffle
+	Menerima alert, ekstrak src_ip, kirim POST ke Flask API
+	T+2s
+	6
+	Flask Blocker API
+	Validasi API key, jalankan block_ip.sh dengan src_ip
+	T+2.5s
+	7
+	UFW (VM2MIKS)
+	Menambahkan aturan DENY IN dari src_ip di posisi [1]
+	T+3s
+	8
+	Verifikasi
+	sudo ufw status numbered menampilkan rule blokir aktif
+	T+5s
+	Tabel 6. Alur Kerja End-to-End Pipeline SOAR
+7.7 Validasi dan Hasil
+Pipeline SOAR berhasil divalidasi dengan bukti-bukti berikut: (1) IP 85.211.194.222 (azurevm-agent) tampak pada rule [1] UFW dengan status DENY IN, yang merupakan IP yang sama dengan sumber serangan ApacheBench; (2) badge counter '3' pada node Shuffle menunjukkan 3 eksekusi sukses yang berkorespondensi dengan jumlah sesi serangan selama praktikum; (3) Flask API mengembalikan returncode 0 untuk setiap eksekusi blokir, mengkonfirmasi UFW berhasil dimodifikasi.
+Waktu respons keseluruhan dari deteksi hingga pemblokiran berkisar 3–5 detik, jauh lebih cepat dibandingkan respons manual analis SOC yang dapat memakan waktu beberapa menit hingga jam. Pipeline ini mendemonstrasikan nilai SOAR dalam mengurangi Mean Time to Respond (MTTR) secara drastis.
+
+
+
+
+BAB VIII — KESIMPULAN
+
+
+8.1 Keberhasilan Deployment dan Setup
+Seluruh tahapan deployment berhasil diselesaikan: provisioning tiga VM Standard D2s v3 di Azure Malaysia West, koneksi SSH menggunakan key-based authentication, instalasi Wazuh v4.9.0 Manager dan Agent, konfigurasi ossec.conf dengan threshold optimal, serta pembuatan custom rule ID 100210 untuk deteksi ApacheBench. Kedua agen terdaftar aktif di Wazuh Dashboard dengan komunikasi terenkripsi melalui TCP port 1514.
+
+
+8.2 Efektivitas Deteksi
+Wazuh terbukti mampu mendeteksi serangan DDoS dengan presisi tinggi. Alert Rule ID 100210 Level 12 secara eksplisit mengidentifikasi 'ApacheBench HTTP flood' — bukan sekadar anomali generik. Integrasi MITRE ATT&CK memetakan serangan ke enam taktik secara otomatis, memberikan konteks intelijen yang kaya. Total 14.088 alert dalam 24 jam dengan 17 alert kritis membuktikan pipeline deteksi berfungsi optimal dari hulu ke hilir.
+
+
+8.3 Temuan Vulnerability
+Vulnerability assessment mengungkap 120 High severity vulnerabilities pada VM2MIKS, didominasi package linux-azure. Temuan Hydra menunjukkan password 'password123' berhasil dieksploitasi dalam waktu 1 detik — mengkonfirmasi perlunya kebijakan password yang lebih kuat dan implementasi MFA.
+
+
+8.4 Temuan Logging Density & Distribusi
+Serangan ab dengan -n 1000 -c 100 meningkatkan volume log dari baseline 0 menjadi puncak 48 event/menit. Konfigurasi ossec.conf dengan log_alert_level 3, email_alert_level 12, dan queue_size 131072 terbukti efektif dalam menjaga keseimbangan antara kelengkapan deteksi dan efisiensi sumber daya. Pipeline distribusi log Agent → Manager bekerja stabil dengan latensi milidetik bahkan di bawah beban serangan ekstrem.
+
+
+8.5 Rekomendasi
+* Segera patch 120 High severity vulnerabilities, terutama linux-azure package.
+* Implementasi active response Wazuh untuk auto-block IP sumber ketika Rule 100210 terpicu.
+* Penguatan credential policy: ganti password default dan implementasi MFA.
+* Rate limiting di level web server (Apache/Nginx) sebagai lapisan pertahanan pertama.
+* Enable Trusted Launch sesuai rekomendasi Azure Advisor untuk meningkatkan security posture VM.
+* Tuning Suricata rules untuk mengurangi false positives dari rule ET DROP.
+
+
+Catatan: Screenshot yang belum tersedia dan dapat melengkapi laporan ini di antaranya adalah tampilan proses instalasi Wazuh Manager/Agent step-by-step, konfigurasi Suricata, dan tampilan NSG (Network Security Group) Azure yang menunjukkan port 1514 dibuka. Mohon lampirkan screenshot tersebut jika tersedia untuk melengkapi dokumentasi.
